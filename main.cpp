@@ -1,3 +1,4 @@
+#include <tuple>
 #include <iostream>
 
 using namespace std;
@@ -72,6 +73,18 @@ struct SimpleQueue
     int last = 0;
 } bfsQueue;
 
+template <typename T>
+struct SimpleStack
+{
+    T list[mapSize*mapSize];
+    void push(const T p) {list[last++] = p; }
+    T pop() { return list[--last];}
+    bool empty() { return last == curr;}
+    void clear() {curr = last = 0;}
+    int curr = 0;
+    int last = 0;
+};
+SimpleStack<Direction> pathStack;
 
 Direction convert(char dirChar)
 {
@@ -310,6 +323,11 @@ Point2D findStartPoint(Field (&map)[mapSize][mapSize])
     return p;
 }
 
+Direction findBackwardPath()
+{
+    return reverseDir(pathStack.pop());
+}
+
 Direction findMostCostPoint(Field (&map)[mapSize][mapSize], Point2D p)
 {
     Direction dir = Direction::North;
@@ -328,6 +346,35 @@ Direction findMostCostPoint(Field (&map)[mapSize][mapSize], Point2D p)
         }
     }
     return dir;
+}
+
+std::tuple<bool, Direction> chooseMove(Field (&map)[mapSize][mapSize], Point2D p)
+{
+    Direction dir;
+
+    static bool backward = false;
+    if (not backward and  map[p.y][p.x].pathTail == 1000)
+    {
+        backward = true;
+        return {true, dir};
+    }
+
+    if (backward)
+    {
+        if (not pathStack.empty())
+            dir =  findBackwardPath();
+        else
+        {
+            backward = false;
+            return {true, dir};
+        }
+    }
+    if (not backward)
+    {
+        dir = findMostCostPoint(map, p);
+        pathStack.push(dir);
+    }
+    return { false, dir};
 }
 
 void updateMap(Field (&map)[mapSize][mapSize], Direction dir)
@@ -459,15 +506,27 @@ int main()
 //            break;
 //        }
 //        auto dir = convert(choise);
-        auto dir = findMostCostPoint(map, me);
+        bool isSurface;
+        Direction dir;
+        std::tie(isSurface, dir) = chooseMove(map, me);
 
-        map[me.y][me.x].me = MeField::Trail;
-        me.moveTo(dir);
-        map[me.y][me.x].me = MeField::Me;
+        if (isSurface)
+        {
+            //clear map me trail
+        }
+        else
+        {
+            map[me.y][me.x].me = MeField::Trail;
+            me.moveTo(dir);
+            map[me.y][me.x].me = MeField::Me;
+        }
         updateMap(map, opDir);
         drawMap(map);
 
-        cout << "MOVE " << convert(dir) << endl;
+        if (isSurface)
+            cout << "SURFACE" << endl;
+        else
+            cout << "MOVE " << convert(dir) << endl;
 //        sleep(2);
     }
 
