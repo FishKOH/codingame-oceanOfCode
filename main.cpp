@@ -344,23 +344,27 @@ void updateMap(Field (&map)[mapSize][mapSize], const TurnAction& action)
             {
                 if (map[y][x].op == OpField::Possible)
                 {
-                    Point2D p{x,y};
-                    p.moveTo(reverseDir(dir));
-                    if (p.inSquare())
                     {
-                        if (map[p.y][p.x].base == BaseField::Island or
-                                (map[p.y][p.x].base == BaseField::Sea and
-                                 (map[p.y][p.x].op == OpField::NotPossible or map[p.y][p.x].op == OpField::NewYes)))
+                        Point2D p{x,y};
+                        p.moveTo(reverseDir(dir));
+                        if (p.inSquare())
+                        {
+                            if (map[p.y][p.x].base == BaseField::Island or
+                                    (map[p.y][p.x].base == BaseField::Sea and
+                                     (map[p.y][p.x].op == OpField::NotPossible or map[p.y][p.x].op == OpField::NewYes)))
+                                map[y][x].op = OpField::NewNot;
+                        }
+                        else
+                        {
                             map[y][x].op = OpField::NewNot;
+                        }
                     }
-                    else
                     {
-                        map[y][x].op = OpField::NewNot;
+                        Point2D p_to(x,y);
+                        p_to.moveTo(dir);
+                        if (p_to.inSquare() and map[p_to.y][p_to.x].base == BaseField::Sea and map[p_to.y][p_to.x].op == OpField::NotPossible)
+                            map[p_to.y][p_to.x].op = OpField::NewYes;
                     }
-                    Point2D p_to(x,y);
-                    p_to.moveTo(dir);
-                    if (p_to.inSquare() and map[p.y][p.x].base == BaseField::Sea and map[p_to.y][p_to.x].op == OpField::NotPossible)
-                        map[p_to.y][p_to.x].op = OpField::NewYes;
                 }
             }
         }
