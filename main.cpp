@@ -73,8 +73,8 @@ int calcCost(Field (&map)[mapSize][mapSize], uint cost = 1, uint pattern = 0)
                 if (map[y][x].cost == cost)
                 {
                     if ((cost == 1 and isFree(map, {x,y}, cost, pattern)) or
-                        (cost > 1 and isFullFree(map, {x,y}, cost)) )
-                    ++map[y][x].cost;
+                            (cost > 1 and isFullFree(map, {x,y}, cost)) )
+                        ++map[y][x].cost;
                     ++newFree;
                 }
             }
@@ -135,7 +135,7 @@ Point2D findMostDistantPoint(Field (&map)[mapSize][mapSize], uint cost)
         for (int x=0; x<mapSize; ++x)
         {
             if (map[y][x].cost == cost and
-                map[y][x].pathTail > maxPathTail)
+                    map[y][x].pathTail > maxPathTail)
             {
                 maxPathTail = map[y][x].pathTail;
                 p.x = x;
@@ -155,7 +155,7 @@ Point2D findMostClosestPointLastLvl(Field (&map)[mapSize][mapSize], uint cost)
         for (int x=0; x<mapSize; ++x)
         {
             if (map[y][x].cost == cost and
-                map[y][x].used)
+                    map[y][x].used)
                 for (int d=0; d<4; ++d)
                 {
                     Point2D pNext(x, y);
@@ -248,8 +248,8 @@ Direction findMostCostPoint(Field (&map)[mapSize][mapSize], Point2D p)
         Point2D pNext = p;
         pNext.moveTo(static_cast<Direction>(d));
         if(pNext.inSquare() and
-           map[pNext.y][pNext.x].pathTail < currPathTail and
-           map[pNext.y][pNext.x].pathTail > maxPathTail)
+                map[pNext.y][pNext.x].pathTail < currPathTail and
+                map[pNext.y][pNext.x].pathTail > maxPathTail)
         {
             maxPathTail = map[pNext.y][pNext.x].pathTail;
             dir = static_cast<Direction>(d);
@@ -287,31 +287,81 @@ std::tuple<bool, Direction> chooseMove(Field (&map)[mapSize][mapSize], Point2D p
     return { false, dir};
 }
 
-void updateMap(Field (&map)[mapSize][mapSize], Direction dir)
+void updateMap(Field (&map)[mapSize][mapSize], const TurnAction& action)
 {
-    for (int y=0; y<mapSize; ++y)
+    if (action.isNan)
+        return;
+
+    if (action.movement.silenced)
     {
-        for (int x=0; x<mapSize; ++x)
+        for (int y=0; y<mapSize; ++y)
         {
-            if (map[y][x].op == OpField::Possible)
+            for (int x=0; x<mapSize; ++x)
             {
-                Point2D p{x,y};
-                p.moveTo(reverseDir(dir));
-                if (p.inSquare())
+                if (map[y][x].op == OpField::Possible)
                 {
-                    if (map[p.y][p.x].base == BaseField::Island or
-                            (map[p.y][p.x].base == BaseField::Sea and
-                             (map[p.y][p.x].op == OpField::NotPossible or map[p.y][p.x].op == OpField::NewYes)))
+                    Point2D p{x,y};
+                    for (int d=0; d<4; ++d)
+                    {
+                        for (int step = 0; step <= 4; ++step)
+                        {
+                            Point2D pNext = p;
+                            pNext.moveTo(static_cast<Direction>(d),step);
+                            if(pNext.inSquare() and
+                                    map[pNext.y][pNext.x].base == BaseField::Sea and
+                                    map[pNext.y][pNext.x].op == OpField::NotPossible
+                                    )
+                                map[pNext.y][pNext.x].op = OpField::NewYes;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    else if (action.movement.surfaced)
+    {
+        int n = action.movement.surfacedSector - 1;
+        Point2D tl(n%3 *5, n/3 * 5);
+        Point2D br = tl;
+        br.add(Point2D(1,1).mul(4));
+        for (int y=0; y<mapSize; ++y)
+        {
+            for (int x=0; x<mapSize; ++x)
+            {
+                if (not Point2D(x,y).inSquare(tl, br))
+                {
+                    map[y][x].op = OpField::NotPossible;
+                }
+            }
+        }
+    }
+    else
+    {
+        auto dir = action.movement.dir;
+        for (int y=0; y<mapSize; ++y)
+        {
+            for (int x=0; x<mapSize; ++x)
+            {
+                if (map[y][x].op == OpField::Possible)
+                {
+                    Point2D p{x,y};
+                    p.moveTo(reverseDir(dir));
+                    if (p.inSquare())
+                    {
+                        if (map[p.y][p.x].base == BaseField::Island or
+                                (map[p.y][p.x].base == BaseField::Sea and
+                                 (map[p.y][p.x].op == OpField::NotPossible or map[p.y][p.x].op == OpField::NewYes)))
+                            map[y][x].op = OpField::NewNot;
+                    }
+                    else
+                    {
                         map[y][x].op = OpField::NewNot;
+                    }
+                    Point2D p_to(x,y);
+                    p_to.moveTo(dir);
+                    if (p_to.inSquare() and map[p.y][p.x].base == BaseField::Sea and map[p_to.y][p_to.x].op == OpField::NotPossible)
+                        map[p_to.y][p_to.x].op = OpField::NewYes;
                 }
-                else
-                {
-                    map[y][x].op = OpField::NewNot;
-                }
-                Point2D p_to(x,y);
-                p_to.moveTo(dir);
-                if (p_to.inSquare() and map[p.y][p.x].base == BaseField::Sea and map[p_to.y][p_to.x].op == OpField::NotPossible)
-                    map[p_to.y][p_to.x].op = OpField::NewYes;
             }
         }
     }
@@ -354,21 +404,43 @@ void drawMap(Field (&map)[mapSize][mapSize])
     }
 }
 
-Direction parseOpString(const string& str)
-{
-    cerr << "OP: " << str << endl;
-    return convert(str[5]);
-}
-
 //#include <unistd.h>
+#include <cassert>
 int main()
 {
+    {
+        auto turn = parseOpString("NA");
+        assert(turn.isNan);
+
+        turn = parseOpString("SILENCE");
+        assert(turn.movement.silenced);
+
+        turn = parseOpString("SURFACE 3");
+        assert(turn.movement.surfaced);
+        assert(turn.movement.surfacedSector == 3);
+
+        turn = parseOpString("SONAR 3|MOVE W TORPEDO");
+        assert(turn.movement.dir == Direction::West);
+        assert(turn.power.sonar);
+        assert(turn.power.sonarSector == 3);
+
+        turn = parseOpString("SONAR 3 | MOVE W TORPEDO");
+        assert(turn.movement.dir == Direction::West);
+        assert(turn.power.sonar);
+        assert(turn.power.sonarSector == 3);
+
+        turn = parseOpString("TORPEDO 10 13 | MOVE S");
+        assert(turn.movement.dir == Direction::South);
+        assert(turn.power.torpedo);
+        assert(turn.power.torpedoTarget.x == 10);
+        assert(turn.power.torpedoTarget.y == 13);
+    }
+
     int width;
     int height;
     int myId;
     cin >> width >> height >> myId; cin.ignore();
 
-    int xCurr, yCurr;
     Field map[mapSize][mapSize];
 
     for (int i = 0; i < height; i++) {
@@ -380,16 +452,20 @@ int main()
     int maxCost = calcCost(map);
     findMaxPath(map);
     drawMap(map);
+
+#ifdef LOCAL_DEBUG
+    int xCurr, yCurr;
+    cout << "x y" << endl;
+    cin >> xCurr >> yCurr;
+    Point2D me(xCurr, yCurr);
+#else
     auto startPoint = findStartPoint(map);
-
-
-//    cerr << "x y\n";
-//    cin >> xCurr >> yCurr;
     Point2D me = startPoint;
+#endif
     map[me.y][me.x].me = MeField::Me;
     cout << me.x << " " << me.y << endl;
     bool isRun = true;
-//    char choise;
+    //    char choise;
     while (isRun)
     {
         int x;
@@ -400,23 +476,24 @@ int main()
         int sonarCooldown;
         int silenceCooldown;
         int mineCooldown;
+#ifdef LOCAL_DEBUG
+        cout << R"(
+IN:  MOVE * / SURFACE   / SILENCE * K | TORPEDO X Y | SONAR L
+OUT: MOVE * / SURFACE L / SILENCE     | TORPEDO X Y | SONAR L
+       N       L=[0,8]     K=[0,4]                    L=[0,8]
+      W E
+       S
+)" << endl;
+        cin.ignore();
+#else
         cin >> x >> y >> myLife >> oppLife >> torpedoCooldown >> sonarCooldown >> silenceCooldown >> mineCooldown; cin.ignore();
         string sonarResult;
         cin >> sonarResult; cin.ignore();
+#endif
         string opponentOrders;
         getline(cin, opponentOrders);
-        auto opDir = parseOpString(opponentOrders);
-//        cerr << " w\n"
-//                "a d\n"
-//                " s\n"
-//                "* - exit\n";
-//        cin >> choise;
-//        if (choise == '*')
-//        {
-//            isRun = false;
-//            break;
-//        }
-//        auto dir = convert(choise);
+        auto opTurn = parseOpString(opponentOrders);
+
         bool isSurface;
         Direction dir;
         std::tie(isSurface, dir) = chooseMove(map, me);
@@ -428,17 +505,31 @@ int main()
         else
         {
             map[me.y][me.x].me = MeField::Trail;
+#ifdef LOCAL_DEBUG
+            if (opTurn.movement.silenced)
+            {
+                int d=0, k=0;
+                cout << "d k" << endl;
+                cin >> d >> k;
+                me.moveTo(static_cast<Direction>(d), k);
+            }
+            else if (opTurn.movement.surfaced)
+            {}
+            else
+                me.moveTo(opTurn.movement.dir);
+#else
             me.moveTo(dir);
+#endif
             map[me.y][me.x].me = MeField::Me;
         }
-        updateMap(map, opDir);
+        updateMap(map, opTurn);
         drawMap(map);
 
         if (isSurface)
             cout << "SURFACE" << endl;
         else
             cout << "MOVE " << convert(dir) << endl;
-//        sleep(2);
+        //        sleep(2);
     }
 
     return 0;
