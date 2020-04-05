@@ -380,34 +380,204 @@ void updateMap(Field (&map)[mapSize][mapSize], const TurnAction& action)
         }
     }
 }
-#include <iomanip>
-void drawMap(Field (&map)[mapSize][mapSize])
+
+
+
+void setTorpedoPossible(Field (&map)[mapSize][mapSize], Point2D p)
 {
     for (int y=0; y<mapSize; ++y)
     {
         for (int x=0; x<mapSize; ++x)
         {
-            cerr << map[y][x].to_op_char();
+            map[y][x].used_torpedo = false;
+            map[y][x].torpedoDistance = 0;
+        }
+    }
+    bfsQueue.push(p);
+    map[p.y][p.x].used_torpedo = true;
+    while (not bfsQueue.empty())
+    {
+        p = bfsQueue.pop();
+        for (int d=0; d<4; ++d)
+        {
+            Point2D pNext = p;
+            pNext.moveTo(static_cast<Direction>(d));
+            if (pNext.inSquare() and map[pNext.y][pNext.x].base == BaseField::Sea and
+                    not map[pNext.y][pNext.x].used_torpedo)
+            {
+                map[pNext.y][pNext.x].used_torpedo = true;
+                map[pNext.y][pNext.x].torpedoDistance = map[p.y][p.x].torpedoDistance + 1;
+                if (map[pNext.y][pNext.x].torpedoDistance < 4)
+                    bfsQueue.push(pNext);
+            }
+        }
+    }
+    bfsQueue.clear();
+}
+
+uint placementCnt(Field (&map)[mapSize][mapSize])
+{
+    uint cnt = 0;
+    for (int y=0; y<mapSize; ++y)
+    {
+        for (int x=0; x<mapSize; ++x)
+        {
+            if (map[y][x].op == OpField::Possible)
+                ++cnt;
+        }
+    }
+    return cnt;
+}
+
+uint placementCntNear(Field (&map)[mapSize][mapSize], Point2D p)
+{
+    Point2D p00, p01, p02,
+            p10,      p12,
+            p20, p21, p22;
+    p01 = p;    p01.moveTo(Direction::North);
+    p02 = p01;  p02.moveTo(Direction::East);
+    p12 = p02;  p12.moveTo(Direction::South);
+    p22 = p12;  p22.moveTo(Direction::South);
+    p21 = p22;  p21.moveTo(Direction::West);
+    p20 = p21;  p20.moveTo(Direction::West);
+    p10 = p20;  p10.moveTo(Direction::North);
+    p00 = p10;  p00.moveTo(Direction::North);
+
+    return 1 +
+            (p00.inSquare() and map[p00.y][p00.x].op == OpField::Possible) +
+            (p01.inSquare() and map[p01.y][p01.x].op == OpField::Possible) +
+            (p02.inSquare() and map[p02.y][p02.x].op == OpField::Possible) +
+            (p10.inSquare() and map[p10.y][p10.x].op == OpField::Possible) +
+            (p12.inSquare() and map[p12.y][p12.x].op == OpField::Possible) +
+            (p20.inSquare() and map[p20.y][p20.x].op == OpField::Possible) +
+            (p21.inSquare() and map[p21.y][p21.x].op == OpField::Possible) +
+            (p22.inSquare() and map[p22.y][p22.x].op == OpField::Possible);
+}
+
+std::tuple<bool, Point2D> torpedoTarget(Field (&map)[mapSize][mapSize])
+{
+    uint cntTargets = placementCnt(map);
+
+    int maxTorpedoTargets = 0;
+    Point2D p(-1,-1);
+
+    for (int y=0; y<mapSize; ++y)
+    {
+        for (int x=0; x<mapSize; ++x)
+        {
+            map[y][x].torpedoTargets = 0;
+            if (map[y][x].torpedoDistance > 0 and
+                    map[y][x].op == OpField::Possible)
+            {
+                auto cnt = placementCntNear(map, {x,y});
+                map[y][x].torpedoTargets = cnt;
+                if ((cnt > maxTorpedoTargets) or
+                        (cnt == maxTorpedoTargets and
+                         map[y][x].torpedoDistance > map[p.y][p.x].torpedoDistance))
+                {
+                    maxTorpedoTargets = cnt;
+                    p.x = x;
+                    p.y = y;
+                }
+            }
+        }
+    }
+    bool isEffective = (maxTorpedoTargets * 2 >= cntTargets);
+
+    return {isEffective, p};
+}
+
+bool isEffective = false;
+Point2D target(-1, -1);
+int prevOpplife = 6;
+int prevTorpedoCooldown = 6;
+void updateMapByTorpedo(Field (&map)[mapSize][mapSize], int oppLife, int torpedoCooldown)
+{
+    int diff = prevOpplife - oppLife;
+    if (torpedoCooldown == 3 and prevTorpedoCooldown == 0)
+    {
+        if (diff == 0)
+        {
+            for (int y=0; y<mapSize; ++y)
+            {
+                for (int x=0; x<mapSize; ++x)
+                {
+                    if (abs(x - target.x)<2 and abs(y - target.y)<2)
+                        map[y][x].op = OpField::NotPossible;
+                }
+            }
+        }
+        else if (diff == 1)
+        {
+            map[target.y][target.x].op = OpField::NotPossible;
+            for (int y=0; y<mapSize; ++y)
+            {
+                for (int x=0; x<mapSize; ++x)
+                {
+                    if (abs(x - target.x)>1 or abs(y - target.y) >1 )
+                        map[y][x].op = OpField::NotPossible;
+                }
+            }
+        }
+        else
+        {
+            for (int y=0; y<mapSize; ++y)
+            {
+                for (int x=0; x<mapSize; ++x)
+                {
+                    if (x != target.x or y != target.y)
+                        map[y][x].op = OpField::NotPossible;
+                }
+            }
+        }
+    }
+    prevOpplife = oppLife;
+    prevTorpedoCooldown = torpedoCooldown;
+}
+
+#include <iomanip>
+void drawMap(Field (&map)[mapSize][mapSize])
+{
+    static bool pathInfo = true;
+    for (int x=0; x<mapSize; ++x)
+        cerr << " __";
+    cerr << endl;
+    for (int y=0; y<mapSize; ++y)
+    {
+        for (int x=0; x<mapSize; ++x)
+        {
+            cerr << "|" << map[y][x].to_op_char()
+                 << map[y][x].to_me_char();
         }
         cerr << "\t";
         for (int x=0; x<mapSize; ++x)
         {
-            cerr << map[y][x].to_me_char();
+            cerr << map[y][x].torpedoTargets;
         }
-        cerr << "\t";
-        for (int x=0; x<mapSize; ++x)
+        if (pathInfo)
         {
-            cerr << map[y][x].cost;
-        }
-        cerr << "\t";
-        for (int x=0; x<mapSize; ++x)
-        {
-            cerr << setw(4) << map[y][x].pathTail;
+            cerr << "\t";
+            for (int x=0; x<mapSize; ++x)
+            {
+                cerr << map[y][x].cost;
+            }
+            cerr << "\t";
+            for (int x=0; x<mapSize; ++x)
+            {
+                cerr << setw(4) << map[y][x].pathTail;
+            }
         }
         cerr << endl;
     }
+    if (pathInfo)
+        pathInfo = false;
 }
 
+
+string choisePower()
+{
+    return "TORPEDO";
+}
 //#include <unistd.h>
 #include <cassert>
 int main()
@@ -481,7 +651,7 @@ int main()
         int silenceCooldown;
         int mineCooldown;
 #ifdef LOCAL_DEBUG
-        cout << R"(
+{        cout << R"(
 IN:  MOVE * / SURFACE   / SILENCE * K | TORPEDO X Y | SONAR L
 OUT: MOVE * / SURFACE L / SILENCE     | TORPEDO X Y | SONAR L
        N       L=[0,8]     K=[0,4]                    L=[0,8]
@@ -489,19 +659,20 @@ OUT: MOVE * / SURFACE L / SILENCE     | TORPEDO X Y | SONAR L
        S
 )" << endl;
         cin.ignore();
+}
 #else
         cin >> x >> y >> myLife >> oppLife >> torpedoCooldown >> sonarCooldown >> silenceCooldown >> mineCooldown; cin.ignore();
+        cerr << x << " " << y << " " << myLife << " " << oppLife << " " << torpedoCooldown << " " << sonarCooldown << " " << silenceCooldown << " " << mineCooldown; cin.ignore();
         string sonarResult;
         cin >> sonarResult; cin.ignore();
 #endif
         string opponentOrders;
         getline(cin, opponentOrders);
         auto opTurn = parseOpString(opponentOrders);
-
+        updateMapByTorpedo(map, oppLife, torpedoCooldown);
         bool isSurface;
         Direction dir;
         std::tie(isSurface, dir) = chooseMove(map, me);
-
         if (isSurface)
         {
             //clear map me trail
@@ -510,30 +681,39 @@ OUT: MOVE * / SURFACE L / SILENCE     | TORPEDO X Y | SONAR L
         {
             map[me.y][me.x].me = MeField::Trail;
 #ifdef LOCAL_DEBUG
-            if (opTurn.movement.silenced)
             {
-                int d=0, k=0;
-                cout << "d k" << endl;
-                cin >> d >> k;
-                me.moveTo(static_cast<Direction>(d), k);
+                if (opTurn.movement.silenced)
+                {
+                    int d=0, k=0;
+                    cout << "d k" << endl;
+                    cin >> d >> k;
+                    me.moveTo(static_cast<Direction>(d), k);
+                }
+                else if (opTurn.movement.surfaced)
+                {}
+                else
+                    me.moveTo(opTurn.movement.dir);
             }
-            else if (opTurn.movement.surfaced)
-            {}
-            else
-                me.moveTo(opTurn.movement.dir);
 #else
             me.moveTo(dir);
 #endif
             map[me.y][me.x].me = MeField::Me;
         }
         updateMap(map, opTurn);
+
+        setTorpedoPossible(map, me);
+        std::tie(isEffective, target) = torpedoTarget(map);
+
         drawMap(map);
 
         if (isSurface)
-            cout << "SURFACE" << endl;
+            cout << "SURFACE";
         else
-            cout << "MOVE " << convert(dir) << endl;
-        //        sleep(2);
+            cout << "MOVE " << convert(dir);
+        cout << " " << choisePower();
+        if (isEffective)
+            cout << "|TORPEDO "<< target.x << " " << target.y;
+        cout << endl;
     }
 
     return 0;

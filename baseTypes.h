@@ -173,9 +173,11 @@ struct Field
     {
         if (base == BaseField::Island)
             return 'x';
-        return me == MeField::Clear? 'o':
-                                     me == MeField::Trail? '.':
-                                                           '*';
+        if (torpedoDistance > 0 )
+            return '@';
+        return me == MeField::Clear? '.':
+                                     me == MeField::Trail? '*':
+                                                           '+';
     }
     BaseField base;
     MeField me;
@@ -183,6 +185,10 @@ struct Field
     uint cost;
     bool used = false;
     uint pathTail = 0;
+
+    bool used_torpedo = false;
+    uint torpedoDistance = 0;
+    uint torpedoTargets = 0;
 };
 
 
