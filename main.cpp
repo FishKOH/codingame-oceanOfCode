@@ -490,11 +490,11 @@ std::tuple<bool, Point2D> torpedoTarget(Field (&map)[mapSize][mapSize])
 bool isEffective = false;
 Point2D target(-1, -1);
 int prevOpplife = 6;
-int prevTorpedoCooldown = 6;
+int prevTorpedoCooldown = 3;
 void updateMapByTorpedo(Field (&map)[mapSize][mapSize], int oppLife, int torpedoCooldown)
 {
     int diff = prevOpplife - oppLife;
-    if (torpedoCooldown == 3 and prevTorpedoCooldown == 0)
+    if (torpedoCooldown - prevTorpedoCooldown >= 2)
     {
         if (diff == 0)
         {
@@ -608,6 +608,18 @@ int main()
         assert(turn.power.torpedo);
         assert(turn.power.torpedoTarget.x == 10);
         assert(turn.power.torpedoTarget.y == 13);
+
+        Field map[mapSize][mapSize];
+        map[0][0].op = map[0][1].op = map[0][2].op = map[1][0].op = map[1][2].op = map[2][0].op = map[2][1].op = map[2][2].op = OpField::Possible;
+        assert(placementCntNear(map, {1,1}) == 9);
+        prevTorpedoCooldown = 0;
+        target = Point2D{1,0};
+        updateMapByTorpedo(map, 6, 3);
+        assert(placementCntNear(map, {1,0}) == 1);
+        assert(placementCntNear(map, {1,1}) == 4);
+
+        //reset
+        prevTorpedoCooldown = 3;
     }
 
     int width;
