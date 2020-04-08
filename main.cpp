@@ -258,33 +258,35 @@ Direction findMostCostPoint(Field (&map)[mapSize][mapSize], Point2D p)
     return dir;
 }
 
-std::tuple<bool, Direction> chooseMove(Field (&map)[mapSize][mapSize], Point2D p)
+static bool backward = false;
+bool needSurface(Field (&map)[mapSize][mapSize], Point2D p)
 {
-    Direction dir;
-
-    static bool backward = false;
     if (not backward and  map[p.y][p.x].pathTail == 1000)
     {
         backward = true;
-        return {true, dir};
+        return true;
     }
+    if (backward and pathStack.empty())
+    {
+        backward = false;
+        return true;
+    }
+}
+
+Direction chooseMove(Field (&map)[mapSize][mapSize], Point2D p)
+{
+    Direction dir;
 
     if (backward)
     {
-        if (not pathStack.empty())
-            dir =  findBackwardPath();
-        else
-        {
-            backward = false;
-            return {true, dir};
-        }
+        dir =  findBackwardPath();
     }
     if (not backward)
     {
         dir = findMostCostPoint(map, p);
         pathStack.push(dir);
     }
-    return { false, dir};
+    return dir;
 }
 
 void updateMap(Field (&map)[mapSize][mapSize], const TurnAction& action)
@@ -574,9 +576,16 @@ void drawMap(Field (&map)[mapSize][mapSize])
 }
 
 
-string choisePower()
+string choisePower(int torpedoCooldown, int sonarCooldown, int silenceCooldown, int mineCooldown)
 {
-    return "TORPEDO";
+    if (torpedoCooldown != 0)
+        return "TORPEDO";
+    if (silenceCooldown != 0)
+        return "SILENCE";
+    if (sonarCooldown != 0)
+        return "SONAR";
+    if (mineCooldown != 0)
+        return "MINE";
 }
 //#include <unistd.h>
 #include <cassert>
@@ -682,9 +691,9 @@ OUT: MOVE * / SURFACE L / SILENCE     | TORPEDO X Y | SONAR L
         getline(cin, opponentOrders);
         auto opTurn = parseOpString(opponentOrders);
         updateMapByTorpedo(map, oppLife, torpedoCooldown);
-        bool isSurface;
+
+        bool isSurface = needSurface(map, me);
         Direction dir;
-        std::tie(isSurface, dir) = chooseMove(map, me);
         if (isSurface)
         {
             //clear map me trail
@@ -707,7 +716,11 @@ OUT: MOVE * / SURFACE L / SILENCE     | TORPEDO X Y | SONAR L
                     me.moveTo(opTurn.movement.dir);
             }
 #else
-            me.moveTo(dir);
+            if (silenceCooldown != 0 )
+            {
+                dir = chooseMove(map, me);
+                me.moveTo(dir);
+            }
 #endif
             map[me.y][me.x].me = MeField::Me;
         }
@@ -718,13 +731,28 @@ OUT: MOVE * / SURFACE L / SILENCE     | TORPEDO X Y | SONAR L
 
         drawMap(map);
 
-        if (isSurface)
-            cout << "SURFACE";
+        if (silenceCooldown != 0 )
+        {
+            if (isSurface)
+                cout << "SURFACE";
+            else
+                cout << "MOVE " << convert(dir);
+            cout << " " << choisePower(torpedoCooldown, sonarCooldown, silenceCooldown, mineCooldown);
+            if (isEffective)
+                cout << "|TORPEDO "<< target.x << " " << target.y;
+        }
         else
-            cout << "MOVE " << convert(dir);
-        cout << " " << choisePower();
-        if (isEffective)
-            cout << "|TORPEDO "<< target.x << " " << target.y;
+        {
+            if (isSurface and isEffective)
+                cout << "SURFACE" << "|TORPEDO "<< target.x << " " << target.y << "|";
+            else if (isSurface and not isEffective)
+                cout << "SURFACE" << "|";
+            else if (not isSurface and isEffective)
+                cout << "TORPEDO "<< target.x << " " << target.y << "|";
+
+            cout << "SILENCE " << convert(dir) << " 0";
+        }
+
         cout << endl;
     }
 
