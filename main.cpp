@@ -8,6 +8,7 @@ using namespace std;
 
 SimpleQueue bfsQueue;
 SimpleStack<Direction> pathStack;
+SimpleStack<Direction> opPathStack;
 
 void fillMapLine(Field * line, string str_line)
 {
@@ -289,100 +290,181 @@ Direction chooseMove(Field (&map)[mapSize][mapSize], Point2D p)
     return dir;
 }
 
-void updateMap(Field (&map)[mapSize][mapSize], const TurnAction& action)
-{
-    if (action.isNan)
-        return;
+void setTorpedoPossible(Field (&map)[mapSize][mapSize], Point2D p);
 
-    if (action.movement.silenced)
+void possiblePositionByPreviousMoving(Field (&map)[mapSize][mapSize], int (&steps)[4])
+{
+    steps[3] = steps[2] = steps[1] = steps[0] = 5;
+    Point2D center;
+    Direction dir;
+    while(not opPathStack.empty())
     {
-        for (int y=0; y<mapSize; ++y)
+        dir = reverseDir(opPathStack.pop());
+        center.moveTo(dir);
+        if (center.x == 0)
         {
-            for (int x=0; x<mapSize; ++x)
-            {
-                if (map[y][x].op == OpField::Possible)
-                {
-                    Point2D p{x,y};
-                    for (int d=0; d<4; ++d)
-                    {
-                        for (int step = 0; step <= 4; ++step)
-                        {
-                            Point2D pNext = p;
-                            pNext.moveTo(static_cast<Direction>(d),step);
-                            if(pNext.inSquare() and
-                                    map[pNext.y][pNext.x].base == BaseField::Sea and
-                                    map[pNext.y][pNext.x].op == OpField::NotPossible
-                                    )
-                                map[pNext.y][pNext.x].op = OpField::NewYes;
-                        }
-                    }
-                }
-            }
+            if (center.y < 0)
+                steps[0] = min(-center.y, steps[0]);
+            else if (center.y > 0)
+                steps[2] = min(center.y, steps[2]);
         }
-    }
-    else if (action.movement.surfaced)
-    {
-        int n = action.movement.surfacedSector - 1;
-        Point2D tl(n%3 *5, n/3 * 5);
-        Point2D br = tl;
-        br.add(Point2D(1,1).mul(4));
-        for (int y=0; y<mapSize; ++y)
+        else if (center.y == 0)
         {
-            for (int x=0; x<mapSize; ++x)
-            {
-                if (not Point2D(x,y).inSquare(tl, br))
-                {
-                    map[y][x].op = OpField::NotPossible;
-                }
-            }
-        }
-    }
-    else
-    {
-        auto dir = action.movement.dir;
-        for (int y=0; y<mapSize; ++y)
-        {
-            for (int x=0; x<mapSize; ++x)
-            {
-                if (map[y][x].op == OpField::Possible)
-                {
-                    {
-                        Point2D p{x,y};
-                        p.moveTo(reverseDir(dir));
-                        if (p.inSquare())
-                        {
-                            if (map[p.y][p.x].base == BaseField::Island or
-                                    (map[p.y][p.x].base == BaseField::Sea and
-                                     (map[p.y][p.x].op == OpField::NotPossible or map[p.y][p.x].op == OpField::NewYes)))
-                                map[y][x].op = OpField::NewNot;
-                        }
-                        else
-                        {
-                            map[y][x].op = OpField::NewNot;
-                        }
-                    }
-                    {
-                        Point2D p_to(x,y);
-                        p_to.moveTo(dir);
-                        if (p_to.inSquare() and map[p_to.y][p_to.x].base == BaseField::Sea and map[p_to.y][p_to.x].op == OpField::NotPossible)
-                            map[p_to.y][p_to.x].op = OpField::NewYes;
-                    }
-                }
-            }
-        }
-    }
-    for (int y=0; y<mapSize; ++y)
-    {
-        for (int x=0; x<mapSize; ++x)
-        {
-            if (map[y][x].op == OpField::NewNot)
-                map[y][x].op = OpField::NotPossible;
-            if (map[y][x].op == OpField::NewYes)
-                map[y][x].op = OpField::Possible;
+            if (center.x > 0)
+                steps[1] = min(center.x, steps[1]);
+            else if (center.x < 0)
+                steps[3] = min(-center.x, steps[3]);
         }
     }
 }
 
+void updateMap(Field (&map)[mapSize][mapSize], const TurnAction& action)
+{
+    int actionCnt = 0;
+    while (action.actions[actionCnt] != Action::NA)
+    {
+        switch (action.actions[actionCnt]) {
+        case Action::SILENCE:
+        {
+            int steps[4];
+            possiblePositionByPreviousMoving(map, steps);
+            for (int d=0; d<4; ++d)
+                cerr << convert(Direction(d)) << steps[d] << " ";
+            cerr << endl;
+            for (int y=0; y<mapSize; ++y)
+            {
+                for (int x=0; x<mapSize; ++x)
+                {
+                    if (map[y][x].op == OpField::Possible)
+                    {
+                        Point2D p{x,y};
+                        for (int d=0; d<4; ++d)
+                        {
+                            for (int step = 1; step < steps[d]; ++step)
+                            {
+                                Point2D pNext = p;
+                                pNext.moveTo(static_cast<Direction>(d),step);
+                                if(pNext.inSquare())
+                                {
+                                    if (map[pNext.y][pNext.x].base == BaseField::Sea)
+                                    {
+                                        if(map[pNext.y][pNext.x].op == OpField::NotPossible)
+                                            map[pNext.y][pNext.x].op = OpField::NewYes;
+                                    }
+                                    else
+                                        break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            break;
+        }
+        case Action::SURFACE:
+        {
+            opPathStack.clear();
+            int n = action.surfacedSector - 1;
+            Point2D tl(n%3 *5, n/3 * 5);
+            Point2D br = tl;
+            br.add(Point2D(1,1).mul(4));
+            for (int y=0; y<mapSize; ++y)
+            {
+                for (int x=0; x<mapSize; ++x)
+                {
+                    if (not Point2D(x,y).inSquare(tl, br))
+                    {
+                        map[y][x].op = OpField::NotPossible;
+                    }
+                }
+            }
+            break;
+        }
+        case Action::MOVE:
+        {
+            auto dir = action.dir;
+            opPathStack.push(dir);
+            for (int y=0; y<mapSize; ++y)
+            {
+                for (int x=0; x<mapSize; ++x)
+                {
+                    if (map[y][x].op == OpField::Possible)
+                    {
+                        {
+                            Point2D p{x,y};
+                            p.moveTo(reverseDir(dir));
+                            if (p.inSquare())
+                            {
+                                if (map[p.y][p.x].base == BaseField::Island or
+                                        (map[p.y][p.x].base == BaseField::Sea and
+                                         (map[p.y][p.x].op == OpField::NotPossible or map[p.y][p.x].op == OpField::NewYes)))
+                                    map[y][x].op = OpField::NewNot;
+                            }
+                            else
+                            {
+                                map[y][x].op = OpField::NewNot;
+                            }
+                        }
+                        {
+                            Point2D p_to(x,y);
+                            p_to.moveTo(dir);
+                            if (p_to.inSquare() and map[p_to.y][p_to.x].base == BaseField::Sea and map[p_to.y][p_to.x].op == OpField::NotPossible)
+                                map[p_to.y][p_to.x].op = OpField::NewYes;
+                        }
+                    }
+                }
+            }
+            break;
+        }
+        case Action::TORPEDO:
+        {
+            setTorpedoPossible(map, action.torpedoTarget);
+            for (int y=0; y<mapSize; ++y)
+            {
+                for (int x=0; x<mapSize; ++x)
+                {
+                    if (map[y][x].torpedoDistance == 0  and
+                            action.torpedoTarget == Point2D(x,y))
+                    {
+                        map[y][x].op = OpField::NotPossible;
+                    }
+                }
+            }
+            break;
+        }
+        case Action::SONAR:
+        {
+            //update my position visible
+            break;
+        }
+        case Action::MINE:
+        {
+            //set info about mine
+            break;
+        }
+        case Action::TRIGGER:
+        {
+            //check info about life decreacing
+            break;
+        }
+        default:
+            break;
+        }
+        for (int y=0; y<mapSize; ++y)
+        {
+            for (int x=0; x<mapSize; ++x)
+            {
+                if (map[y][x].op == OpField::NewNot)
+                    map[y][x].op = OpField::NotPossible;
+                if (map[y][x].op == OpField::NewYes)
+                    map[y][x].op = OpField::Possible;
+            }
+        }
+        ++actionCnt;
+    }
+
+}
 
 
 void setTorpedoPossible(Field (&map)[mapSize][mapSize], Point2D p)
@@ -587,48 +669,83 @@ string choisePower(int torpedoCooldown, int sonarCooldown, int silenceCooldown, 
     if (mineCooldown != 0)
         return "MINE";
 }
-//#include <unistd.h>
+
 #include <cassert>
 int main()
 {
     {
-        auto turn = parseOpString("NA");
-        assert(turn.isNan);
+        TurnAction turn;
+        for (int i=0; i<=uint8_t(Action::TRIGGER); ++i)
+            assert(turn.actions[i] == Action::NA);
+
+        turn = parseOpString("NA");
+        assert(turn.actions[0] == Action::NA);
 
         turn = parseOpString("SILENCE");
-        assert(turn.movement.silenced);
+        assert(turn.actions[0] == Action::SILENCE);
+        assert(turn.actions[1] == Action::NA);
 
         turn = parseOpString("SURFACE 3");
-        assert(turn.movement.surfaced);
-        assert(turn.movement.surfacedSector == 3);
+        assert(turn.actions[0] == Action::SURFACE);
+        assert(turn.actions[1] == Action::NA);
+        assert(turn.surfacedSector == 3);
 
         turn = parseOpString("SONAR 3|MOVE W TORPEDO");
-        assert(turn.movement.dir == Direction::West);
-        assert(turn.power.sonar);
-        assert(turn.power.sonarSector == 3);
+        assert(turn.actions[0] == Action::SONAR);
+        assert(turn.actions[1] == Action::MOVE);
+        assert(turn.actions[2] == Action::NA);
+        assert(turn.dir == Direction::West);
+        assert(turn.sonarSector == 3);
 
         turn = parseOpString("SONAR 3 | MOVE W TORPEDO");
-        assert(turn.movement.dir == Direction::West);
-        assert(turn.power.sonar);
-        assert(turn.power.sonarSector == 3);
+        assert(turn.actions[0] == Action::SONAR);
+        assert(turn.actions[1] == Action::MOVE);
+        assert(turn.actions[2] == Action::NA);
+        assert(turn.dir == Direction::West);
+        assert(turn.sonarSector == 3);
 
         turn = parseOpString("TORPEDO 10 13 | MOVE S");
-        assert(turn.movement.dir == Direction::South);
-        assert(turn.power.torpedo);
-        assert(turn.power.torpedoTarget.x == 10);
-        assert(turn.power.torpedoTarget.y == 13);
+        assert(turn.actions[0] == Action::TORPEDO);
+        assert(turn.actions[1] == Action::MOVE);
+        assert(turn.actions[2] == Action::NA);
+        assert(turn.dir == Direction::South);
+        assert(turn.torpedoTarget == Point2D(10, 13));
 
-        Field map[mapSize][mapSize];
-        map[0][0].op = map[0][1].op = map[0][2].op = map[1][0].op = map[1][2].op = map[2][0].op = map[2][1].op = map[2][2].op = OpField::Possible;
-        assert(placementCntNear(map, {1,1}) == 9);
-        prevTorpedoCooldown = 0;
-        target = Point2D{1,0};
-        updateMapByTorpedo(map, 6, 3);
-        assert(placementCntNear(map, {1,0}) == 1);
-        assert(placementCntNear(map, {1,1}) == 4);
+        turn = parseOpString("MOVE E | SURFACE 7|SILENCE |TORPEDO 14 9| SONAR 3 |MINE |TRIGGER 9 14");
+        assert(turn.actions[0] == Action::MOVE);
+        assert(turn.actions[1] == Action::SURFACE);
+        assert(turn.actions[2] == Action::SILENCE);
+        assert(turn.actions[3] == Action::TORPEDO);
+        assert(turn.actions[4] == Action::SONAR);
+        assert(turn.actions[5] == Action::MINE);
+        assert(turn.actions[6] == Action::TRIGGER);
+        assert(turn.actions[7] == Action::NA);
+        assert(turn.dir == Direction::East);
+        assert(turn.surfacedSector == 7);
+        assert(turn.torpedoTarget == Point2D(14,9));
+        assert(turn.sonarSector == 3);
+        assert(turn.triggerTarget == Point2D(9,14));
 
-        //reset
-        prevTorpedoCooldown = 3;
+
+
+        {
+            Field map[mapSize][mapSize];
+            map[0][0].op = map[0][1].op = map[0][2].op = map[1][0].op = map[1][2].op = map[2][0].op = map[2][1].op = map[2][2].op = OpField::Possible;
+            assert(placementCntNear(map, {1,1}) == 9);
+            prevTorpedoCooldown = 0;
+            target = Point2D{1,0};
+            updateMapByTorpedo(map, 6, 3);
+            assert(placementCntNear(map, {1,0}) == 1);
+            assert(placementCntNear(map, {1,1}) == 4);
+            //reset
+            prevTorpedoCooldown = 3;
+        }
+        {
+            Field map[mapSize][mapSize];
+            assert(placementCntNear(map, {0,0}) == 1);
+            updateMap(map, parseOpString("TORPEDO 0 0|MOVE S"));
+            assert(placementCntNear(map, {0,0}) == 1);
+        }
     }
 
     int width;
@@ -703,17 +820,15 @@ OUT: MOVE * / SURFACE L / SILENCE     | TORPEDO X Y | SONAR L
             map[me.y][me.x].me = MeField::Trail;
 #ifdef LOCAL_DEBUG
             {
-                if (opTurn.movement.silenced)
+                if (opTurn.actions[0]==Action::SILENCE)
                 {
                     int d=0, k=0;
                     cout << "d k" << endl;
                     cin >> d >> k;
                     me.moveTo(static_cast<Direction>(d), k);
                 }
-                else if (opTurn.movement.surfaced)
-                {}
                 else
-                    me.moveTo(opTurn.movement.dir);
+                    me.moveTo(opTurn.dir);
             }
 #else
             if (silenceCooldown != 0 )
