@@ -45,6 +45,11 @@ struct Point2D
     {
         return x >= topLeft.x and y >= topLeft.y and x<= bottomRight.x and y <= bottomRight.y;
     }
+    bool isNear(const Point2D& p)
+    {
+        return (abs(x - p.x)<2 and abs(y - p.y)<2);
+    }
+
     void moveTo(Direction dir, uint step = 1)
     {
         Point2D dirs[] = {{0,-1}, {1,0}, {0,1}, {-1,0}};

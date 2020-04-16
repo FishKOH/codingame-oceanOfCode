@@ -78,7 +78,11 @@ uint placementCntNear(Field (&map)[mapSize][mapSize], Point2D p)
             (p22.inSquare() and map[p22.y][p22.x].op == OpField::Possible);
 }
 
-std::tuple<bool, Point2D> findTorpedoTarget(Field (&map)[mapSize][mapSize])
+
+Point2D torpedoTarget(-1, -1);
+int prevOpplife = 6;
+int myLife = 6;
+std::tuple<int, Point2D> calcCostTorpedoTarget(Field (&map)[mapSize][mapSize], Point2D me)
 {
     uint cntTargets = placementCnt(map);
 
@@ -90,14 +94,19 @@ std::tuple<bool, Point2D> findTorpedoTarget(Field (&map)[mapSize][mapSize])
         for (int x=0; x<mapSize; ++x)
         {
             map[y][x].torpedoTargets = 0;
-            if (map[y][x].torpedoDistance > 0 and
-                    map[y][x].op == OpField::Possible)
+            bool aroundMe = me.isNear({x,y});
+            bool isKill = (cntTargets == 1 and map[y][x].op == OpField::Possible and ((prevOpplife <= 2) or (myLife - prevOpplife > 1))) or
+                          (cntTargets == placementCntNear(map, {x,y}) and prevOpplife == 1);
+            bool isGood = not aroundMe or isKill;
+            bool isPossible = (map[y][x].op == OpField::Possible) or (myLife - prevOpplife > 1) or (prevOpplife == 1);
+            if (isGood and isPossible and
+                    map[y][x].torpedoDistance > 0)
             {
                 auto cnt = placementCntNear(map, {x,y});
                 map[y][x].torpedoTargets = cnt;
                 if ((cnt > maxTorpedoTargets) or
-                        (cnt == maxTorpedoTargets and
-                         map[y][x].torpedoDistance > map[p.y][p.x].torpedoDistance))
+                        (cnt == maxTorpedoTargets and map[y][x].op == OpField::Possible) or
+                        (cnt == maxTorpedoTargets and map[y][x].torpedoDistance > map[p.y][p.x].torpedoDistance))
                 {
                     maxTorpedoTargets = cnt;
                     p.x = x;
@@ -106,23 +115,21 @@ std::tuple<bool, Point2D> findTorpedoTarget(Field (&map)[mapSize][mapSize])
             }
         }
     }
-    bool isEffective = (maxTorpedoTargets * 2 >= cntTargets);
-
-    return {isEffective, p};
+    if ( not (maxTorpedoTargets * 2 >= cntTargets))
+    {
+        maxTorpedoTargets = 0;
+        p = {-1,-1};
+    }
+    if (not me.isNear(p) and maxTorpedoTargets != 0)
+        maxTorpedoTargets += 10;
+    return {maxTorpedoTargets, p};
 }
 
-bool isEffective = false;
-Point2D torpedoTarget(-1, -1);
-int prevOpplife = 6;
 
-
-string choisePower(int& torpedoCooldown, int sonarCooldown, int silenceCooldown, int mineCooldown)
+string choisePower(int torpedoCooldown, int sonarCooldown, int silenceCooldown, int mineCooldown)
 {
     if (torpedoCooldown != 0)
-    {
-        --torpedoCooldown;
         return "TORPEDO";
-    }
     if (silenceCooldown != 0)
         return "SILENCE";
     if (sonarCooldown != 0)
@@ -134,6 +141,7 @@ string choisePower(int& torpedoCooldown, int sonarCooldown, int silenceCooldown,
 #include <cassert>
 int main()
 {
+
     {
         TurnAction turn;
         for (int i=0; i<=uint8_t(Action::TRIGGER); ++i)
@@ -187,6 +195,7 @@ int main()
         assert(turn.sonarSector == 3);
         assert(turn.triggerTarget == Point2D(9,14));
 
+        assert(hasShotAfterSilence(parseOpString("MOVE W|SILENCE|TORPEDO 5 5")));
 
         {
             ComplexShot shot;
@@ -320,7 +329,7 @@ int main()
     {
         int x;
         int y;
-        int myLife;
+//        int myLife;
         int oppLife;
         int torpedoCooldown;
         int sonarCooldown;
@@ -350,6 +359,7 @@ OUT: MOVE * / SURFACE L / SILENCE     | TORPEDO X Y | SONAR L
         detection(map,opTurn,damage, torpedoTarget);
 
         bool isSurface = needSurface(map, me);
+        bool isTorpedoBefore = false;
         Direction dir;
         if (isSurface)
         {
@@ -372,32 +382,56 @@ OUT: MOVE * / SURFACE L / SILENCE     | TORPEDO X Y | SONAR L
             }
 #else
                 dir = chooseMove(map, me);
+
+                int costBeforeMove, costAfterMove;
+                Point2D targetBeforeMove, targetAfterMove;
+
+                setTorpedoPossible(map, me);
+                std::tie(costBeforeMove, targetBeforeMove) = calcCostTorpedoTarget(map, me);
+
                 me.moveTo(dir);
+
+                setTorpedoPossible(map, me);
+                std::tie(costAfterMove, targetAfterMove) = calcCostTorpedoTarget(map, me);
+
+                cerr << "before " <<costBeforeMove
+                     << " after " << costAfterMove << endl;
+                if (costBeforeMove != 0 and costBeforeMove >= costAfterMove and torpedoCooldown == 0)
+                {
+                    isTorpedoBefore = true;
+                    torpedoTarget = targetBeforeMove;
+                    torpedoCooldown = 3;
+                }
+                else if (costAfterMove != 0 and torpedoCooldown <= 1)
+                {
+                    isTorpedoBefore = false;
+                    torpedoTarget = targetAfterMove;
+                }
+                else
+                    torpedoTarget = {-1,-1};
+
 #endif
             map[me.y][me.x].me = MeField::Me;
         }
-
-        setTorpedoPossible(map, me);
-        std::tie(isEffective, torpedoTarget) = findTorpedoTarget(map);
         auto power = choisePower(torpedoCooldown, sonarCooldown, silenceCooldown, mineCooldown);
-        if (torpedoCooldown != 0 or not isEffective)
-        {
-            isEffective = false;
-            torpedoTarget = {-1,-1};
-        }
 
         drawMap(map);
 
+        if (isTorpedoBefore)
+            if (torpedoTarget.x != -1)
+                cout << "TORPEDO "<< torpedoTarget.x << " " << torpedoTarget.y << "|";
         if (isSurface)
             cout << "SURFACE|";
         else
             cout << "MOVE " << convert(dir) << " " << power << "|";
-        if (isEffective)
-            cout << "TORPEDO "<< torpedoTarget.x << " " << torpedoTarget.y << "|";
+        if (not isTorpedoBefore)
+            if (torpedoTarget.x != -1)
+                cout << "TORPEDO "<< torpedoTarget.x << " " << torpedoTarget.y << "|";
         if (silenceCooldown == 0 )
             cout << "SILENCE " << convert(dir) << " 0";
+        cout << "|MSG " << placementCnt(map);
         if (debugThis)
-            cout << "|MSG DEBUG THIS";
+            cout << " DEBUG THIS";
         cout << endl;
     }
 

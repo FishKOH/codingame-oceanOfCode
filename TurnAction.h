@@ -121,7 +121,7 @@ bool hasShotAfterSilence(const TurnAction& turnAction)
            turnAction.actions[actionCnt] != Action::SILENCE)
         ++actionCnt;
     while (turnAction.actions[actionCnt] != Action::NA and
-           (turnAction.actions[actionCnt] != Action::TORPEDO or
+           (turnAction.actions[actionCnt] != Action::TORPEDO and
             turnAction.actions[actionCnt] != Action::TRIGGER))
         ++actionCnt;
     return turnAction.actions[actionCnt] != Action::NA;

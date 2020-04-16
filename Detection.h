@@ -8,8 +8,7 @@ int damageInTargetByShot(Point2D target, Point2D shot)
     int damage = 0;
     if (shot == target)
         damage = 2;
-    else if (abs(shot.x - target.x)<2 and
-             abs(shot.y - target.y)<2)
+    else if (shot.isNear(target))
         damage = 1;
     return damage;
 }
@@ -326,7 +325,6 @@ void detection(Field (&map)[mapSize][mapSize], const TurnAction& action,
 
         if (complexShot.hasShots())
         {
-            cerr << "SHOTS" << shot1.x << shot2.x << complexShot.beforeMove << endl;
             simpleDamageDetection(map, complexShot, damage);
         }
         updateMap(map, action);
