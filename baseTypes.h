@@ -1,9 +1,8 @@
-#include <string>
-#include <sstream>
-using namespace std;
+#ifndef BASE_TYPES_H
+#define BASE_TYPES_H
 
 const int mapSize = 15;
-const string dirChars = "NESW";
+const char dirChars[] = "NESW";
 enum class Direction {North, East, South, West};
 enum class BaseField : bool { Island, Sea};
 enum class MeField : short { NotPossible, Clear, Me, Trail};
@@ -63,102 +62,6 @@ struct Point2D
     int x, y;
 };
 
-enum class Action : uint8_t {
-    NA, MOVE, SURFACE, SILENCE, TORPEDO, SONAR, MINE, TRIGGER
-};
-
-struct TurnAction
-{
-    Action actions[8] = {Action::NA};
-    Direction dir = Direction::North;
-    uint surfacedSector = -1;
-    uint sonarSector = -1;
-    Point2D torpedoTarget{-1,-1};
-    Point2D triggerTarget{-1,-1};
-};
-
-//MOVE N TORPEDO	MOVE N
-//SURFACE			SURFACE 3
-//SILENCE N 4		SILENCE
-//|
-//TORPEDO 3 5		TORPEDO 3 5
-//|
-//SONAR 4			SONAR 4
-//MINE E            MINE
-//TRIGGER 3 5       TRIGGER 3 5
-
-//MOVE E SURFACE 7 SILENCE TORPEDO 24 9 SONAR 3 MINE TRIGGER 14 9
-
-
-TurnAction parseOpString(const string& str)
-{
-    cerr << "opString: " << str << endl;
-    TurnAction turn;
-    if (str == "NA")
-        return turn;
-
-    auto tempString = str;
-    uint actionCnt = 0;
-    while(true)
-    {
-        auto pos = tempString.find('|');
-        string s(tempString, 0, pos);
-        stringstream ss(s, std::ios_base::in);
-        string cmd;
-        ss >> cmd;
-        if (cmd == "MOVE")
-        {
-            turn.actions[actionCnt] = Action::MOVE;
-            char c;
-            ss >> c;
-            turn.dir = convert(c);
-        }
-        else if (cmd == "SURFACE")
-        {
-            turn.actions[actionCnt] = Action::SURFACE;
-            ss >> turn.surfacedSector;
-        }
-        else if (cmd == "SILENCE")
-            turn.actions[actionCnt] = Action::SILENCE;
-        else if (cmd == "TORPEDO")
-        {
-            turn.actions[actionCnt] = Action::TORPEDO;
-            int xt,yt;
-            ss >> xt >> yt;
-            turn.torpedoTarget = Point2D{xt, yt};
-        }
-        else if (cmd == "SONAR")
-        {
-            turn.actions[actionCnt] = Action::SONAR;
-            ss >> turn.sonarSector;
-        }
-        else if (cmd == "MINE")
-        {
-            turn.actions[actionCnt] = Action::MINE;
-        }
-        else if (cmd == "TRIGGER")
-        {
-            turn.actions[actionCnt] = Action::TRIGGER;
-            int xt,yt;
-            ss >> xt >> yt;
-            turn.triggerTarget = Point2D{xt, yt};
-        }
-
-        if (pos == string::npos)
-            break;
-        else
-        {
-            tempString = string(tempString, pos+1);
-            ++actionCnt;
-        }
-    }
-    return turn;
-}
-
-std::string formAction(const TurnAction& turn)
-{
-
-}
 
 struct Field
 {
@@ -190,6 +93,56 @@ struct Field
     uint torpedoTargets = 0;
 };
 
+#include <iomanip>
+using namespace std;
+void drawMap(Field (&map)[mapSize][mapSize])
+{
+    static bool pathInfo = true;
+    for (int x=0; x<mapSize; ++x)
+        cerr << " __";
+    cerr << endl;
+    for (int y=0; y<mapSize; ++y)
+    {
+        for (int x=0; x<mapSize; ++x)
+        {
+            cerr << "|" << map[y][x].to_op_char()
+                 << map[y][x].to_me_char();
+        }
+        cerr << "\t";
+        for (int x=0; x<mapSize; ++x)
+        {
+            cerr << map[y][x].torpedoTargets;
+        }
+        if (pathInfo)
+        {
+            cerr << "\t";
+            for (int x=0; x<mapSize; ++x)
+            {
+                cerr << map[y][x].cost;
+            }
+            cerr << "\t";
+            for (int x=0; x<mapSize; ++x)
+            {
+                cerr << setw(4) << map[y][x].pathTail;
+            }
+        }
+        cerr << endl;
+    }
+    if (pathInfo)
+        pathInfo = false;
+}
+
+void fillSea(Field (&map)[mapSize][mapSize])
+{
+    for (int y=0; y<mapSize; ++y)
+    {
+        for (int x=0; x<mapSize; ++x)
+        {
+            map[y][x].base = BaseField::Sea;
+        }
+    }
+}
+
 const int maxTurn = 300;
 struct SimpleQueue
 {
@@ -201,6 +154,7 @@ struct SimpleQueue
     int curr = 0;
     int last = 0;
 };
+SimpleQueue bfsQueue;
 
 template <typename T>
 struct SimpleStack
@@ -213,3 +167,5 @@ struct SimpleStack
     int curr = 0;
     int last = 0;
 };
+
+#endif // BASE_TYPES_H
